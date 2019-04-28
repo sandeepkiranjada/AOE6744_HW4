@@ -45,44 +45,7 @@ C = [1 -1 0 0];
 
 D = 0; % For completeness
 
-%% Classical control
 
-% [b,a] = ss2tf(A,B,eye(4),zeros(1,4)');
-
-% U2X(1,:) = tf(b(1,:),a);
-% U2X(2,:) = tf(b(2,:),a);
-% U2X(3,:) = tf(b(3,:),a);
-% U2X(4,:) = tf(b(4,:),a);
-% 
-% [mag1,phase1,wout1] = bode(U2X(1,:));
-% [mag2,phase2,wout2] = bode(U2X(2,:));
-% [mag3,phase3,wout3] = bode(U2X(3,:));
-% [mag4,phase4,wout4] = bode(U2X(4,:));
-% 
-% figure; bode(U2X(1,:)); title('TF - u to x1')
-% figure; bode(U2X(2,:)); title('TF - u to x2')
-% figure; bode(U2X(3,:)); title('TF - u to x3')
-% figure; bode(U2X(4,:)); title('TF - u to x4')
-% 
-% figure; plot(roots(b(1,:)),'o'); hold on
-% plot(roots(a),'*')
-% title('TF - u to x1')
-% legend('zeros','poles');
-% 
-% figure; plot(roots(b(2,:)),'o'); hold on
-% plot(roots(a),'*')
-% title('TF - u to x2')
-% legend('zeros','poles');
-% 
-% figure; plot(roots(b(3,:)),'o'); hold on
-% plot(roots(a),'*')
-% title('TF - u to x3')
-% legend('zeros','poles');
-% 
-% figure; plot(roots(b(4,:)),'o'); hold on
-% plot(roots(a),'*')
-% title('TF - u to x4')
-% legend('zeros','poles');
 
 %% Controllablity and Observablity
 
@@ -107,12 +70,13 @@ close all
 R3 = [0 0 1 0];
 
 Q = diag([1e4 100 0 0]);
-R = B(3,:)^2;
+R = 1;
+rho = sqrt(R/B(3,:)^2);
 
 A_bar = (eye(4) - B*R3./B(3,:))*A;
+B_bar = B.*rho;
 
-
-if (4==rank(ctrb(A_bar,B)))
+if (4==rank(ctrb(A_bar,B_bar)))
     disp('new system is fully contollable');
 else
     error('new system is not fully contollable');
@@ -125,7 +89,8 @@ else
 end
 
 
-[K,sk,ek] = lqr(A,B,Q,R);
+[K_bar,sk,ek] = lqr(A_bar,B_bar,Q,R);
+K = K_bar.*rho-R3*A./B(3,:);
 [G,sg,eg] = lqr(A,C',W,V);
 G=G';
 
@@ -137,17 +102,81 @@ E0 = X0-X_hat_0;
 X_aug_0 = [X0;E0];
 
 tf = 10;
-dt = 0.0001;
+dt = 0.00001;
 t=0:dt:tf;
 
-X_aug = X_aug_0;
+sigma_v = V^0.5;
+v = sigma_v*randn(length(t),1);
+
+sigma_w = W0^0.5;
+w = sigma_w*randn(length(t),1);
+
+X_aug_d = X_aug_0;
+X_aug_n = X_aug_0;
 
 for n=2:length(t)
-    Xd = A_aug*X_aug(:,n-1);
-    X_aug(:,n) = X_aug(:,n-1) + dt*Xd;
+    Xdd = A_aug*X_aug_d(:,n-1);
+    Xdn = Xdd+[Gamma.*w(n);Gamma.*w(n)-G.*v(n)];
+    X_aug_d(:,n) = X_aug_d(:,n-1) + dt*Xdd;
+    X_aug_n(:,n) = X_aug_n(:,n-1) + dt*Xdn;
+
 end
 
-X = X_aug(1:4,:);
-X_hat = X - X_aug(5:8,:);
+Xd = X_aug_d(1:4,:);
+X_hat_d = Xd - X_aug_d(5:8,:);
+ud = -K*X_hat_d;
+Xn = X_aug_n(1:4,:);
+X_hat_n = Xn - X_aug_n(5:8,:);
+un = -K*X_hat_n;
+%%
+close all
+figure; plot(t,Xd(1,:),t,X_hat_d(1,:));legend({'$x_1$','$\hat{x}_1$'},'Interpreter','Latex')
+figure; plot(t,Xd(2,:),t,X_hat_d(2,:));legend({'$x_2$','$\hat{x}_2$'},'Interpreter','Latex')
+figure; plot(t,Xd(3,:),t,X_hat_d(3,:));legend({'$x_3$','$\hat{x}_3$'},'Interpreter','Latex')
+figure; plot(t,Xd(4,:),t,X_hat_d(4,:));legend({'$x_4$','$\hat{x}_4$'},'Interpreter','Latex')
+figure; plot(t,ud);legend({'$u$'},'Interpreter','Latex')
 
-figure; plot(t,X(1,:),t,X_hat(1,:))
+figure; plot(t,w,t,v)
+figure; plot(t,Xn(1,:),t,X_hat_n(1,:));legend({'$x_1$','$\hat{x}_1$'},'Interpreter','Latex')
+figure; plot(t,Xn(2,:),t,X_hat_n(2,:));legend({'$x_2$','$\hat{x}_2$'},'Interpreter','Latex')
+figure; plot(t,Xn(3,:),t,X_hat_n(3,:));legend({'$x_3$','$\hat{x}_3$'},'Interpreter','Latex')
+figure; plot(t,Xn(4,:),t,X_hat_n(4,:));legend({'$x_4$','$\hat{x}_4$'},'Interpreter','Latex')
+figure; plot(t,un);legend({'$u$'},'Interpreter','Latex')
+
+%% Classical control
+clear tf
+pause
+close all
+[num_U2Y,den_U2Y] = ss2tf(A,B,K,0); % TF from U to Y
+
+RDofS = tf(num_U2Y,den_U2Y);
+
+[num_U2Y,den_U2Y] = ss2tf(A,B,C,0); % TF from U to Y
+
+RDofS2 = tf(num_U2Y,den_U2Y);
+
+A_tilda = A-B*K-G*C;
+
+[num_Y2Xh,den_Y2Xh] = ss2tf(A_tilda,G,K,0); % TF from Y to Xhat
+
+
+
+KofS = tf(num_Y2Xh,den_Y2Xh);
+
+t1 = RDofS2*KofS+1;
+t2 = RDofS+1;
+
+[G2,sg2,eg2] = lqr(A,C',W+100000.*B*B',V);
+G2=G2';
+
+A_tilda2 = A-B*K-G2*C;
+
+[num_Y2Xh,den_Y2Xh] = ss2tf(A_tilda2,G2,K,0); % TF from Y to Xhat
+KofS2 = tf(num_Y2Xh,den_Y2Xh);
+t3 = RDofS2*KofS2+1;
+
+figure; bode(t1); hold on
+bode(t2); bode(t3);
+
+figure; margin(t1); grid on
+figure; margin(t2); grid on
