@@ -2,105 +2,110 @@
 % second order linear oscillator with control and disturbance forces.  
 % The notation follows that of OPTIMAL CONTROL AND ESTIMATION by 
 % R. F. Stengel.
-
+clc
 clear
 close all
 
-% Continuous time system parameters
-omegan = 1;
-zeta = 0.1;
-omegad = sqrt(1-zeta^2)*omegan;
+%% Continuous time system parameters
 
-A = [0, 1; -omegan^2, -2*zeta*omegan];
-B = [0; omegan^2];
-C = [1, 0];
-L = [0; omegan^2];
+H = @(X) [1    sin(X(1)).*tan(X(2))    cos(X(1)).*tan(X(2));...
+          0               cos(X(1))              -sin(X(1));...
+          0    sin(X(1)).*sec(X(2))    cos(X(1)).*sec(X(2))];
 
-% Choose the sample time to capture around Z points per cycle of damped
-% oscillation.
-Z = 10;
-T = (1/Z)*((2*pi)/omegad);
+f = @(X,U) H(X)*U;
+l = @(X,w_tilda) H(X)*w_tilda;
 
-% Discrete time system parameters
-Phi = expm(A*T);
-Gamma = (Phi - eye(2))*inv(A)*B;
-Lambda = (Phi - eye(2))*inv(A)*L;
+h = @(X) [-sin(X(2));sin(X(1)).*cos(X(2));X(3)];
 
-% Choose the maximum index so that the simulation captures N cycles of
-% damped oscillation.
-N = 10;
-kmax = ceil((N/T)*(2*pi/omegad));
 
-% Initialize the data arrays.
-x = zeros(kmax+1,2);
-xhat_minus = x;
-xhat_plus = x;
-y = zeros(kmax+1,1);
-yhat = y;
-P_minus = zeros(2,2,kmax+1);
-P_plus = P_minus;
-u = zeros(kmax+1,1);
+%% Jacobian
 
-% Gaussian random initial state
-mean_x = 0;
-sigma_x = 1;
-x(1,:) = mean_x + sigma_x*randn(size(x(1,:)));
-P_plus(:,:,1) = eye(2);
+A = @(X,U) [U(2)*cos(X(1))*tan(X(2))-U(3)*sin(X(1))*tan(X(2))                  U(2)*sin(X(1))*(sec(X(2))^2)+U(3)*cos(X(1))*(sec(X(2))^2) 0; ...
+                               -U(2)*sin(X(1))-U(3)*cos(X(1))                                                                          0 0; ...
+            U(2)*cos(X(1))*sec(X(2))-U(3)*sin(X(1))*sec(X(2))  U(2)*sin(X(1))*(sec(X(2))*tan(X(2)))+U(3)*cos(X(1))*(sec(X(2))^tan(X(2))) 0];
 
-% Zero-mean random disturbance vector and (constant) covariance.
-sigma_w = 10;
-w = sigma_w*randn(kmax+1,1);
-W = Lambda*(sigma_w^2)*Lambda';
+C = @(X) [                  0            -cos(X(2)) 0; ...
+          cos(X(1))*cos(X(2))  -sin(X(1))*sin(X(2)) 0; ...
+                            0                     0 1];
+L = @(X) H(X);
 
-% Zero-mean random noise vector and (constant) covariance.
-sigma_v = 0.1;
-v = sigma_v*randn(kmax+1,1);
-V = sigma_v^2;
 
-for k = 1:kmax
-    % Actual state update
-    x(k+1,:) = (Phi*x(k,:)' + Gamma*u(k) + Lambda*w(k))';
-    % State estimate update based on dynamic model
-    xhat_minus(k+1,:) = (Phi*xhat_plus(k,:)' + Gamma*u(k))';
-    % State estimate covariance update based on dynamic model
-    P_minus(:,:,k+1) = Phi*P_plus(:,:,k)*Phi' + W;
-    % Measurement and measurement estimate
-    y(k+1) = C*(x(k+1,:))' + v(k+1);
-    yhat(k+1) = C*xhat_minus(k+1,:)';
-    % Optimal observer gain
-    G = P_minus(:,:,k)*C'*inv(C*P_minus(:,:,k)*C' + V);
-    % State estimate update based on measurement
-    xhat_plus(k+1,:) = (xhat_minus(k+1,:)' + G*(y(k+1)-yhat(k+1)))';
-    % State estimate covariance update based on measurement
-    P_plus(:,:,k+1) = inv(inv(P_minus(:,:,k+1)) + C'*inv(V)*C);
+%% Noise Characteristics
+
+sigma_W0 = [10 10 10]'.*.3*pi/180;
+sigma_V = [0.4 0.4 0.3]'*0.4;
+
+W0 = diag(sigma_W0.^2);
+V = diag(sigma_V.^2);
+
+OMEGA = pi;
+Tfinal = 10*pi/OMEGA;
+dt = 0.001;
+t = 0:dt:Tfinal;
+U = [cos(OMEGA.*t);sin(OMEGA.*t);t.*0];
+
+w = diag(sigma_W0)*randn(3,length(t));
+
+% sigma_v = V^0.5;
+v = diag(sigma_V)*randn(3,length(t));
+
+
+sigma_X = [5 5 5]'.*pi/180;
+P0 = diag(sigma_X.^2);
+X0 = [5 10 7]'.*pi/180;
+Xh = [0 0 0]';
+X  = X0;
+Y  = h(X0)+v(1);
+P = P0;
+
+% sigma_w = W0^0.5;
+
+
+for n = 2:length(t)
+    % Actual State
+    X(:,n) = X(:,n-1) + dt.* H(X(:,n-1))*(U(:,n-1)+w(:,n-1));
+    Y(:,n) = h(X(:,n)) + v(:,n);
+    % step 1
+    Xm = Xh(:,n-1) + dt.* (f(Xh(:,n-1),U(:,n-1)));
+    % step 2
+    Pm = P + dt.* (A(Xh(:,n-1),U(:,n-1))*P + P*A(Xh(:,n-1),U(:,n-1))' + L(Xh(:,n-1))*W0*L(Xh(:,n-1))');
+    % step 3
+    Gk = Pm*C(Xm)'/(C(Xm)*Pm*C(Xm)+V);
+    % step 4
+    Xh(:,n) = Xm + Gk * (Y(:,n)-h(Xm));
+    % step 5
+    P = (eye(3) - Gk*C(Xh(:,n)))*Pm*(eye(3) - Gk*C(Xh(:,n)))+Gk*V*Gk';
 end
+%% Plots
+close all
+c = 180/pi;
+figure;
+subplot(3,1,1);plot(t,X(1,:)*c,t,Xh(1,:)*c);legend({'$x_1$','$\hat{x}_1$'},'Interpreter','Latex')
+ylabel('\phi (deg)')
+title('States (With Process Noise)');
+subplot(3,1,2);plot(t,X(2,:)*c,t,Xh(2,:)*c);legend({'$x_2$','$\hat{x}_2$'},'Interpreter','Latex')
+ylabel('\theta (deg)')
+subplot(3,1,3);plot(t,X(3,:)*c,t,Xh(3,:)*c);legend({'$x_3$','$\hat{x}_3$'},'Interpreter','Latex')
+xlabel('Time (s)');
+ylabel('\psi (deg)')
 
-figure
-title('State and State Estimates')
-plot(T*[1:kmax+1]',x(1:kmax+1,1),'.',...
-    T*[1:kmax+1]',xhat_minus(1:kmax+1,1),'-.',...
-    T*[1:kmax+1]',xhat_plus(1:kmax+1,1),'-.','LineWidth',2)
-legend('True State','Model-Updated Estimate','Measurement-Updated Estimate')
-xlabel('Time (s)')
+figure;
+subplot(3,1,1);plot(t,U(1,:)*c+w(1,:)*c,t,U(1,:)*c);legend({'$p+\tilde{p}$','$p$'},'Interpreter','Latex')
+ylabel('p (deg/s)')
+title('Control (With Process Noise)');
+subplot(3,1,2);plot(t,U(2,:)*c+w(2,:)*c,t,U(2,:)*c);legend({'$q+\tilde{q}$','$q$'},'Interpreter','Latex')
+ylabel('q (deg/s)')
+subplot(3,1,3);plot(t,U(3,:)*c+w(3,:)*c,t,U(3,:)*c);legend({'$r+\tilde{r}$','$r$'},'Interpreter','Latex')
+xlabel('Time (s)');
+ylabel('r (deg/s)')
 
-P11 = zeros(kmax+1,1);
-P12 = zeros(kmax+1,1);
-P22 = zeros(kmax+1,1);
-for i = 1:kmax+1
-P11(i) = P_plus(1,1,i);
-P12(i) = P_plus(1,2,i);
-P22(i) = P_plus(1,2,i);
-end
-
-% figure
-% title('Error Covariance Matrix Elements')
-% plot(T*[1:kmax+1]',P11,T*[1:kmax+1]',P12,T*[1:kmax+1]',P22)
-% legend('P_{11}','P_{12}','P_{22}')
-% xlabel('Time (s)')
-
-% figure
-% title('Output and Output Estimate')
-% plot(T*[1:kmax+1]',y(1:kmax+1,1),'.',...
-%     T*[1:kmax+1]',yhat(1:kmax+1,1),'--')
-% legend('Output','Output Estimate')
+figure;
+subplot(3,1,1);plot(t,Y(1,:),t,Y(1,:)-v(1,:));legend({'$y_1$','$h_1(X)$'},'Interpreter','Latex')
+ylabel('y_1 (g)')
+title('Outputs and Measurement Noise (With Process Noise)');
+subplot(3,1,2);plot(t,Y(2,:),t,Y(2,:)-v(2,:));legend({'$y_2$','$h_2(X)$'},'Interpreter','Latex')
+ylabel('y_2 (g)')
+subplot(3,1,3);plot(t,Y(3,:)*c,t,Y(3,:)*c-v(3,:)*c);legend({'$y_3$','$h_3(X)$'},'Interpreter','Latex')
+xlabel('Time (s)');
+ylabel('y_3 (deg)')
 
