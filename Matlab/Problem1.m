@@ -93,7 +93,7 @@ end
 
 [K_bar,sk,ek] = lqr(A_bar,B_bar,Q,R);
 K = K_bar.*rho-R3*A./B(3,:);
-[G,sg,eg] = lqr(A,C',W,V);
+[G,sg,eg] = lqr(A',C',W,V);
 G=G';
 
 A_aug = [   A-B*K    B*K;...
@@ -198,7 +198,7 @@ KofS = tf(num_Y2Xh,den_Y2Xh);
 LQG = UYg*KofS;
 LQR = UUg;
 
-[G2,sg2,eg2] = lqr(A,C',W+1e1.*B*B',V);
+[G2,sg2,eg2] = lqr(A',C',W+1e1.*B*B',V);
 G2=G2';
 
 A_tilda2 = A-B*K-G2*C;
@@ -207,7 +207,7 @@ A_tilda2 = A-B*K-G2*C;
 KofS2 = tf(num_Y2Xh,den_Y2Xh);
 LQGLTR = UYg*KofS2;
 
-[G2,sg2,eg2] = lqr(A,C',W+1e10.*B*B',V);
+[G2,sg2,eg2] = lqr(A',C',W+1e10.*B*B',V);
 G2=G2';
 
 A_tilda2 = A-B*K-G2*C;

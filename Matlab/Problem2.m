@@ -52,7 +52,7 @@ v = diag(sigma_V)*randn(3,length(t));
 
 sigma_X = [5 5 5]'.*pi/180;
 P0 = diag(sigma_X.^2);
-X0 = [5 10 7]'.*pi/180;
+X0 = [10 20 14]'.*pi/180;
 Xh = [0 0 0]';
 X  = X0;
 Y  = h(X0)+v(1);
